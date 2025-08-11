@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>StageFlow – v2.33n (CSV Fix + Name Cell Clean)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
@@ -35,7 +35,8 @@
     .li-header .time{font-size:0.85em;color:var(--muted);}
     .li-header .timer{font-family:monospace;font-size:0.85em;}
     .li-header .counts{margin-left:auto;display:inline-flex;gap:6px;}
-    .details{display:none;margin-top:6px;} .note-input{width:100%;padding:4px;margin-bottom:6px;background:#20203a;border:1px solid #555;color:var(--text);border-radius:3px;font-size:0.9em;}
+    .details{display:none;margin-top:6px;}
+    .note-input{width:100%;padding:4px;margin-bottom:6px;background:#20203a;border:1px solid #555;color:var(--text);border-radius:3px;font-size:0.9em;}
     .btn-small{padding:3px 6px;font-size:0.75em;margin:0 3px;background:#333;border:none;color:var(--text);border-radius:3px;}
     .col-resizer{position:absolute;top:0;right:-4px;width:var(--resizer-hit);height:100%;cursor:col-resize;opacity:0;}
     .manual .col-resizer{opacity:1;}
@@ -86,84 +87,15 @@
     .btn-row{display:flex;gap:6px;flex-wrap:wrap;}
     .btn{padding:4px 8px;border:none;border-radius:6px;cursor:pointer;}
     .btn-primary{background:var(--border);color:#000;}
-    .btn-secondary{background:#333;color:#text;}
+    .btn-secondary{background:#333;color:var(--text);} /* fixed typo */
     .btn-danger{background:#ff6b6b;color:#000;}
     .roster-resizer{position:absolute;right:8px;bottom:8px;width:16px;height:16px;cursor:nwse-resize;opacity:.8;background:repeating-linear-gradient(135deg,var(--border),var(--border) 2px,transparent 2px,transparent 4px);border-radius:4px;}
     .roster-split{flex:0 0 6px;cursor:col-resize;background:#3a3a6a;border-radius:4px;}
   </style>
 </head>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>StageFlow - v2.33n (CSV Fix + Name Cell Clean)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    :root {
-      --bg:#d0d0d0; --text:#e0e0e0; --panel-bg:#1a1a1a; --border:#14ffec;
-      --off-border:#6c6cff; --notes-bg:#0f0f1f; --muted:#aaa; --cell-padding:4px;
-      --column-width:260px; --box-font-size:1.05em; --gaps:8px;
-      --auto-scale:1; --user-font-scale:1; --resizer-hit:10px; --max-width:900px;
-    }
-    /* Your CSS continues here... */
-  </style>
-</head>
-<body>
-  <div id="auth" style="display:none; text-align:center; margin-top:50px;">
-    <h2>Sign in</h2>
-    <input id="email" type="email" placeholder="Email"><br><br>
-    <input id="password" type="password" placeholder="Password"><br><br>
-    <button id="signin">Sign In</button>
-    <button id="signup">Create Account</button>
-  </div>
-
-  <div id="app" style="display:none;">
-    <!-- Your StageFlow UI starts here -->
-    <!-- All your existing app HTML remains here -->
-  </div>
-
-  <script type="module">
-    import { supabase } from './supabaseClient.js';
-
-    const authEl = document.getElementById("auth");
-    const appEl = document.getElementById("app");
-    const emailEl = document.getElementById("email");
-    const passEl = document.getElementById("password");
-
-    function showApp(isLoggedIn) {
-      authEl.style.display = isLoggedIn ? "none" : "block";
-      appEl.style.display = isLoggedIn ? "block" : "none";
-    }
-
-    document.getElementById("signin").onclick = async () => {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: emailEl.value,
-        password: passEl.value
-      });
-      if (error) alert(error.message);
-    };
-
-    document.getElementById("signup").onclick = async () => {
-      const { error } = await supabase.auth.signUp({
-        email: emailEl.value,
-        password: passEl.value
-      });
-      if (error) alert(error.message);
-      else alert("Check your email to confirm your account.");
-    };
-
-    const { data: { session } } = await supabase.auth.getSession();
-    showApp(!!session);
-
-    supabase.auth.onAuthStateChange((_event, sessionNow) => {
-      showApp(!!sessionNow);
-    });
-  </script>
-</body>
-</html>  
 <body>
 
-<!-- Login screen -->
+<!-- Login screen (shown when logged out) -->
 <div id="auth" style="display:none; text-align:center; padding:20px;">
   <h2>Sign in</h2>
   <input id="email" type="email" placeholder="Email" />
@@ -270,8 +202,8 @@
   </div>
 </div> <!-- end of #app -->
 
-<!-- Sortable: local (lowercase) with CDN fallback -->
-<script src="sortable.min.js"></script>
+<!-- Sortable: local (filename must be exactly this) with CDN fallback -->
+<script src="Sortable.min.js"></script>
 <script>
   (function ensureSortable(){
     function onReady(cb){ if(document.readyState!=='loading') cb(); else document.addEventListener('DOMContentLoaded',cb); }
