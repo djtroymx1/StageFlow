@@ -86,13 +86,26 @@
     .btn-row{display:flex;gap:6px;flex-wrap:wrap;}
     .btn{padding:4px 8px;border:none;border-radius:6px;cursor:pointer;}
     .btn-primary{background:var(--border);color:#000;}
-    .btn-secondary{background:#333;color:var(--text);}
+    .btn-secondary{background:#333;color:#text;}
     .btn-danger{background:#ff6b6b;color:#000;}
     .roster-resizer{position:absolute;right:8px;bottom:8px;width:16px;height:16px;cursor:nwse-resize;opacity:.8;background:repeating-linear-gradient(135deg,var(--border),var(--border) 2px,transparent 2px,transparent 4px);border-radius:4px;}
     .roster-split{flex:0 0 6px;cursor:col-resize;background:#3a3a6a;border-radius:4px;}
   </style>
 </head>
 <body>
+
+<!-- Login screen -->
+<div id="auth" style="display:none; text-align:center; padding:20px;">
+  <h2>Sign in</h2>
+  <input id="email" type="email" placeholder="Email" />
+  <input id="password" type="password" placeholder="Password" />
+  <br><br>
+  <button id="signin">Sign In</button>
+  <button id="signup">Create Account</button>
+</div>
+
+<!-- App wrapper (hidden until logged in) -->
+<div id="app" style="display:none;">
   <div id="toastWrap"></div>
 
   <div class="app">
@@ -186,504 +199,548 @@
     </div>
     <div class="roster-resizer" id="rosterResizer" title="Resize"></div>
   </div>
+</div> <!-- end of #app -->
 
-  <script src="Sortable.min.js"></script>
-  <script>
-    (function ensureSortable(){
-      function onReady(cb){ if(document.readyState!=='loading') cb(); else document.addEventListener('DOMContentLoaded',cb); }
-      onReady(()=>{
-        setTimeout(()=>{
-          if(typeof Sortable==='undefined'){
-            const s=document.createElement('script');
-            s.src='https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
-            document.head.appendChild(s);
-          }
-        },0);
-      });
-    })();
-
-    const toastWrap=document.getElementById('toastWrap');
-    function toast(msg,type='ok',ms=2200){
-      try{
-        const t=document.createElement('div'); t.className='toast '+(type==='err'?'err':'ok'); t.textContent=msg;
-        toastWrap.appendChild(t); setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .35s';}, ms);
-        setTimeout(()=>{t.remove();}, ms+380);
-      }catch(e){}
-    }
-
-    const board=document.getElementById('board');
-    const offPanel=document.getElementById('offPanel');
-    const splitter=document.getElementById('splitter');
-    const totalEl=document.getElementById('totalCount');
-    const offCountEl=document.getElementById('offCount');
-    const nameInput=document.getElementById('nameInput');
-    const addBtn=document.getElementById('addBtn');
-    const saveBtn=document.getElementById('saveBtn');
-    const themeBtn=document.getElementById('themeBtn');
-    const rosterBtn=document.getElementById('rosterBtn');
-    const newNightBtn=document.getElementById('newNightBtn');
-    const stageCountSelect=document.getElementById('stageCount');
-    const nextStageBtn=document.getElementById('nextStageBtn');
-    const fontScale=document.getElementById('fontScale');
-    const fontScaleVal=document.getElementById('fontScaleVal');
-    const boxWidth=document.getElementById('boxWidth');
-    const boxWidthVal=document.getElementById('boxWidthVal');
-    const fitToggle=document.getElementById('fitToggle');
-    const advToggle=document.getElementById('advToggle');
-
-    const DATE_KEY=new Date().toISOString().slice(0,10);
-    const LOG_KEY='shiftLog_'+DATE_KEY;
-    const STAGE_COUNT_KEY='stageCount_'+DATE_KEY;
-    const FONT_SCALE_KEY='fontScale_'+DATE_KEY;
-    const BOX_WIDTH_KEY='boxWidth_'+DATE_KEY;
-    const FIT_TOGGLE_KEY='fitToggle_'+DATE_KEY;
-    const ADV_TOGGLE_KEY='advToggle_'+DATE_KEY;
-    const THEME_KEY='theme_'+DATE_KEY;
-    const DB_KEY='dancers_db_v1';
-    const COL_WIDTHS_KEY='colWidths_'+DATE_KEY;
-    const LOWER_SPLIT_KEY='lowerSplit_'+DATE_KEY;
-    const ROSTER_POS_KEY='roster_pos_v1';
-
-    let log={};
-    try{ log=JSON.parse(localStorage.getItem(LOG_KEY)||'{}'); }
-    catch(e){ log={}; localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
-
-    function saveLog(){ try{ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }catch(e){ toast('Save failed','err'); } }
-    function uid(){ return 'id'+Math.random().toString(36).slice(2,9); }
-    function countsHTML(o){const d=o.dances|0,sp=o.specials|0,v15=o.vip15|0,v30=o.vip30|0,v60=o.vip60|0,v=v15+v30+v60;const chip=(l,v)=>'<span class="badge'+(v?'':' zero')+'">'+l+v+'</span>';return chip('D',d)+chip(' VIP',v)+chip(' Sp',sp);}
-    function getCurrentDate(){return new Date().toISOString().slice(0,10);}
-    function formatDisplayTime(t){if(!t)return'';const m=t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);if(!m)return t;let[,h,min,p]=m;h=parseInt(h);return(p&&p.toUpperCase()==='AM')?(h+':'+min+' AM'):(h+':'+min);}
-    function getCurrentTime12Hour(){const n=new Date();let minutes=n.getMinutes();const r=Math.round(minutes/5)*5;let h=n.getHours();if(r===60){h+=1;minutes=0}else{minutes=r}const per=h>=12?'PM':'AM';h=h%12||12;return h+':'+String(minutes).padStart(2,'0')+' '+per;}
-
-    const THEMES=['dark','bright','contrast','neon','blue'];
-    function applyTheme(name){const t=THEMES.includes(name)?name:'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem(THEME_KEY,t);}
-    function loadTheme(){applyTheme(localStorage.getItem(THEME_KEY)||'dark');}
-
-    let lists={}; const offRotation=document.getElementById('offRotation');
-    function buildColumn(title,id){
-      const col=document.createElement('div'); col.className='column';
-      const h2=document.createElement('h2');
-      const left=document.createElement('span'); left.textContent=title;
-      const right=document.createElement('span');
-      const btn=document.createElement('button'); btn.className='btn-next-small'; btn.textContent='Next'; btn.addEventListener('click',()=>nextFrom(id));
-      right.appendChild(btn); h2.append(left,right);
-      const ul=document.createElement('ul'); ul.id=id;
-      const resizer=document.createElement('div'); resizer.className='col-resizer'; resizer.addEventListener('mousedown',e=>startResize(e,col,id));
-      col.append(h2,ul,resizer);
-      return {col,ul};
-    }
-    function setAutoScaleVars(c){const a=Math.max(0.6,1-Math.max(c-2,0)*0.08);document.documentElement.style.setProperty('--auto-scale',String(a));document.documentElement.style.setProperty('--stage-count',String(c));}
-    function getGlobalBoxWidth(){const s=parseInt(localStorage.getItem(BOX_WIDTH_KEY)||'260',10);return Math.min(420,Math.max(160,s));}
-    function setGlobalBoxWidth(px){localStorage.setItem(BOX_WIDTH_KEY,String(px));}
-    function loadColWidths(){try{return JSON.parse(localStorage.getItem(COL_WIDTHS_KEY)||'{}')}catch(e){return{}}}
-    function saveColWidths(m){localStorage.setItem(COL_WIDTHS_KEY,JSON.stringify(m));}
-    function clearColWidths(){saveColWidths({});}
-    function applyColumnWidths(){
-      const fit=fitToggle.checked; const ids=Object.keys(lists); const gaps=Math.max(ids.length-1,0)*8;
-      if(fit&&ids.length){const avail=board.clientWidth-gaps;const w=Math.max(160,Math.floor(avail/ids.length));ids.forEach(id=>{lists[id].parentElement.style.flexBasis=w+'px';});}
-      else{const map=loadColWidths();const g=getGlobalBoxWidth();ids.forEach(id=>{const px=map[id]||g;lists[id].parentElement.style.flexBasis=px+'px';});}
-    }
-    function rebuildStages(c){
-      const prev=Array.from(document.querySelectorAll('#board li[data-id]'));
-      lists={}; board.innerHTML='';
-      for(let i=1;i<=c;i++){const id='stage'+i;const {col,ul}=buildColumn('Stage '+i,id);lists[id]=ul;board.appendChild(col);}
-      (function waitForSortable(attempt=0){
-        if(typeof Sortable!=='undefined'){ Object.values(lists).forEach(ul=>new Sortable(ul,{group:'shared',animation:150})); new Sortable(offRotation,{group:'shared',animation:150}); }
-        else if(attempt<20){ setTimeout(()=>waitForSortable(attempt+1),100); }
-      })();
-      if(prev.length) prev.forEach(li=>lists.stage1.appendChild(li));
-      setAutoScaleVars(c); applyColumnWidths(); updateCountsOff(); updateTotal(); renderTotalsBar();
-    }
-    function loadStageCount(){const s=localStorage.getItem(STAGE_COUNT_KEY);const n=s?Math.max(1,Math.min(6,parseInt(s,10))):1;stageCountSelect.value=String(n);return n;}
-    function saveStageCount(n){localStorage.setItem(STAGE_COUNT_KEY,String(n));}
-
-    function loadFontScale(){const s=localStorage.getItem(FONT_SCALE_KEY);const pct=s?Math.max(60,Math.min(160,parseInt(s,10))):100;fontScale.value=String(pct);fontScaleVal.textContent=pct+'%';document.documentElement.style.setProperty('--user-font-scale',String(pct/100));}
-    function saveFontScale(p){localStorage.setItem(FONT_SCALE_KEY,String(p));}
-    fontScale.addEventListener('input',()=>{const p=parseInt(fontScale.value,10);fontScaleVal.textContent=p+'%';document.documentElement.style.setProperty('--user-font-scale',String(p/100));saveFontScale(p);});
-    function loadBoxWidth(){const px=getGlobalBoxWidth();boxWidth.value=String(px);boxWidthVal.textContent=px+'px';document.documentElement.style.setProperty('--column-width',px+'px');}
-    boxWidth.addEventListener('input',()=>{const px=parseInt(boxWidth.value,10);boxWidthVal.textContent=px+'px';document.documentElement.style.setProperty('--column-width',px+'px');setGlobalBoxWidth(px);if(!fitToggle.checked){clearColWidths();}applyColumnWidths();});
-    function loadFitToggle(){const s=localStorage.getItem(FIT_TOGGLE_KEY);fitToggle.checked=s==='1';}
-    function saveFitToggle(){localStorage.setItem(FIT_TOGGLE_KEY,fitToggle.checked?'1':'0');}
-    fitToggle.addEventListener('change',()=>{saveFitToggle();applyColumnWidths();});
-    window.addEventListener('resize',()=>{if(fitToggle.checked)applyColumnWidths();});
-    function loadAdvToggle(){const s=localStorage.getItem(ADV_TOGGLE_KEY);advToggle.checked=s==='1';syncManualClass();}
-    function saveAdvToggle(){localStorage.setItem(ADV_TOGGLE_KEY,advToggle.checked?'1':'0');}
-    function syncManualClass(){if(advToggle.checked)board.classList.add('manual');else board.classList.remove('manual');}
-    advToggle.addEventListener('change',()=>{saveAdvToggle();syncManualClass();});
-
-    const MIN_W=160,MAX_W=520; let activeResize=null;
-    function startResize(e,col,id){if(!advToggle.checked)return;e.preventDefault();const startX=e.clientX;const startW=col.getBoundingClientRect().width;activeResize={startX,startW,col,id};document.addEventListener('mousemove',onResizeMove);document.addEventListener('mouseup',onResizeEnd);}
-    function onResizeMove(e){if(!activeResize)return;const dx=e.clientX-activeResize.startX;let w=Math.max(MIN_W,Math.min(MAX_W,Math.round(activeResize.startW+dx)));activeResize.col.style.flexBasis=w+'px';}
-    function onResizeEnd(){if(!activeResize)return;const map=loadColWidths();map[activeResize.id]=parseInt(activeResize.col.style.flexBasis,10)||activeResize.col.getBoundingClientRect().width;saveColWidths(map);activeResize=null;document.removeEventListener('mousemove',onResizeMove);document.removeEventListener('mouseup',onResizeEnd);}
-
-    function loadLowerSplit(){const saved=parseInt(localStorage.getItem(LOWER_SPLIT_KEY)||'0',10);const defaultW=Math.max(220,Math.min(480,280));const w=saved>0?saved:defaultW;offPanel.style.flexBasis=w+'px';document.documentElement.style.setProperty('--lower-off-w',w+'px');}
-    function saveLowerSplit(px){localStorage.setItem(LOWER_SPLIT_KEY,String(px));}
-    let splitActive=null;
-    splitter.addEventListener('mousedown',(e)=>{e.preventDefault();splitActive={startX:e.clientX,startW:offPanel.getBoundingClientRect().width};document.addEventListener('mousemove',onSplitMove);document.addEventListener('mouseup',onSplitEnd);});
-    function onSplitMove(e){if(!splitActive)return;const dx=e.clientX-splitActive.startX;let w=Math.max(180,Math.min(600,Math.round(splitActive.startW+dx)));offPanel.style.flexBasis=w+'px';document.documentElement.style.setProperty('--lower-off-w',w+'px');}
-    function onSplitEnd(){if(!splitActive)return;const w=parseInt(offPanel.style.flexBasis,10)||offPanel.getBoundingClientRect().width;saveLowerSplit(w);splitActive=null;document.removeEventListener('mousemove',onSplitMove);document.removeEventListener('mouseup',onSplitEnd);}
-
-    function updateCounts(li){
-      try{
-        const d={dances:+li.dataset.dances||0,vip15:+li.dataset.vip15||0,vip30:+li.dataset.vip30||0,vip60:+li.dataset.vip60||0,specials:+li.dataset.specials||0};
-        const c=li.querySelector('.counts');
-        if(c){ c.innerHTML = countsHTML(d); }
-        const hasVip=d.vip15+d.vip30+d.vip60>0;
-        if(hasVip) li.classList.add('vip-done'); else li.classList.remove('vip-done');
-      }catch(e){}
-    }
-    function adjust(li,key,delta){
-      try{
-        const cur=+li.dataset[key]||0;
-        const nxt=Math.max(0,cur+delta);
-        li.dataset[key]=nxt;
-        updateCounts(li);
-        renderTotalsBar();
-        const id=li.dataset.id;
-        if(id){
-          if(!log[id]) log[id]={};
-          const map={dances:'DANCES',vip15:'VIP15',vip30:'VIP30',vip60:'VIP60',specials:'SPECIALS'};
-          const K=map[key]||key.toUpperCase();
-          log[id][K]=nxt; saveLog();
+<!-- Sortable: local (lowercase) with CDN fallback -->
+<script src="sortable.min.js"></script>
+<script>
+  (function ensureSortable(){
+    function onReady(cb){ if(document.readyState!=='loading') cb(); else document.addEventListener('DOMContentLoaded',cb); }
+    onReady(()=>{
+      setTimeout(()=>{
+        if(typeof Sortable==='undefined'){
+          const s=document.createElement('script');
+          s.src='https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
+          document.head.appendChild(s);
         }
-      }catch(e){}
-    }
-
-    function createVIPPicker(anchorEl, li){
-      let picker=li.querySelector('.vip-picker');
-      if(!picker){
-        picker=document.createElement('div'); picker.className='vip-picker';
-        picker.innerHTML='<button data-k="vip15">15</button><button data-k="vip30">30</button><button data-k="vip60">60</button>';
-        document.body.appendChild(picker);
-        picker.addEventListener('click',(ev)=>{
-          const key=ev.target.getAttribute('data-k'); if(!key) return;
-          adjust(li,key,1); hideVIPPicker();
-        });
-      }
-      function position(){
-        const r = anchorEl.getBoundingClientRect();
-        picker.style.left = Math.max(8, Math.min(window.innerWidth-160, Math.round(r.left)))+'px';
-        picker.style.top  = Math.round(r.bottom + 6)+'px';
-        picker.style.display='flex';
-      }
-      function hideVIPPicker(){ if(picker) picker.style.display='none'; document.removeEventListener('click', onDoc); }
-      function onDoc(e){ if(!picker.contains(e.target) && !anchorEl.contains(e.target)) hideVIPPicker(); }
-      position();
-      setTimeout(()=>document.addEventListener('click', onDoc), 0);
-    }
-
-    function makeDancer(name,time='',note='',C=0,S=0,D=0,id=null){
-      try{
-        id=id||uid();
-        if(!log[id]) log[id]={};
-        log[id] = Object.assign({ name, time, C, S, D, note, starColor:null, checkout:'' }, log[id]);
-        saveLog();
-        const li=document.createElement('li');
-        Object.assign(li.dataset,{ id, name, time, note, dances:(D|0), vip15:0, vip30:(C|0), vip60:0, specials:(S|0) });
-
-        const header=document.createElement('div'); header.className='li-header';
-        const nameSpan=document.createElement('span'); nameSpan.className='name'; nameSpan.textContent=name;
-        const timeSpan=document.createElement('span'); timeSpan.className='time'; timeSpan.textContent=formatDisplayTime(time);
-        const timerSpan=document.createElement('span'); timerSpan.className='timer'; timerSpan.textContent='';
-        const counts=document.createElement('span'); counts.className='counts';
-
-        header.append(nameSpan, timeSpan, timerSpan, counts);
-
-        const details=document.createElement('div'); details.className='details';
-        const noteArea=document.createElement('textarea'); noteArea.className='note-input'; noteArea.rows=2; noteArea.placeholder='Notes / song requests'; noteArea.value=note;
-        noteArea.oninput=()=>{ li.dataset.note=noteArea.value; log[id].note=noteArea.value; saveLog(); };
-
-        const btnRow=document.createElement('div');
-        const btnDance=document.createElement('button'); btnDance.className='btn-small'; btnDance.textContent='+Dance';
-        btnDance.onclick=(e)=>{ e.stopPropagation(); adjust(li,'dances', e.shiftKey ? -1 : 1); };
-
-        const btnVIP=document.createElement('button'); btnVIP.className='btn-small'; btnVIP.textContent='+VIP';
-        btnVIP.onclick=(e)=>{ e.stopPropagation(); createVIPPicker(btnVIP, li); };
-
-        const btnSpec=document.createElement('button'); btnSpec.className='btn-small'; btnSpec.textContent='+Special';
-        btnSpec.onclick=(e)=>{ e.stopPropagation(); adjust(li,'specials', e.shiftKey ? -1 : 1); };
-
-        btnRow.append(btnDance, btnVIP, btnSpec);
-        details.append(noteArea, btnRow);
-
-        header.addEventListener('contextmenu', (ev)=>{
-          ev.preventDefault();
-          const newName = prompt('Edit dancer name', nameSpan.textContent);
-          if(newName && newName.trim()){
-            const merged = tryMergeByName(newName.trim(), li);
-            if(!merged){
-              nameSpan.textContent=newName.trim(); li.dataset.name=newName.trim(); log[id].name=newName.trim(); saveLog();
-            }
-          }
-          const newTime = prompt('Set or edit check-in time (e.g., 1:00 or 1:00 AM)', timeSpan.textContent);
-          if(newTime!==null){ timeSpan.textContent=formatDisplayTime(newTime); li.dataset.time=newTime; log[id].time=newTime; saveLog(); }
-        });
-
-        header.addEventListener('click', (ev)=>{
-          if(ev.shiftKey){
-            if(confirm('Delete this dancer?')){ log[id].checkout=getCurrentTime12Hour(); saveLog(); li.remove(); updateTotal(); renderTotalsBar(); }
-          } else {
-            details.style.display = details.style.display==='block' ? 'none' : 'block';
-          }
-        });
-
-        li.append(header, details);
-        updateCounts(li);
-        return li;
-      } catch(e){ toast('Add failed','err'); return null; }
-    }
-
-    function findActiveByName(name){
-      const norm=(name||'').trim().toLowerCase();
-      const all=[...document.querySelectorAll('ul#offRotation li[data-id]'), ...Object.values(lists).flatMap(ul=>Array.from(ul.children))].filter(li=>li.dataset&&li.dataset.id);
-      return all.find(li => (li.dataset.name||'').trim().toLowerCase() === norm) || null;
-    }
-    function tryMergeByName(targetName, sourceLi){
-      const existing = findActiveByName(targetName);
-      if(!existing || existing===sourceLi) return false;
-      const ok = confirm('A dancer named "'+targetName+'" already exists. Merge this entry into the existing one?');
-      if(!ok) return false;
-      const keys=['dances','vip15','vip30','vip60','specials'];
-      keys.forEach(k=>{const a=+existing.dataset[k]||0;const b=+sourceLi.dataset[k]||0;existing.dataset[k]=a+b;});
-      const noteA=existing.dataset.note||''; const noteB=sourceLi.dataset.note||'';
-      const mergedNote=noteA&&noteB?(noteA+' | '+noteB):(noteA||noteB); if(mergedNote){existing.dataset.note=mergedNote;}
-      const timeA=(existing.dataset.time||'').trim(); const timeB=(sourceLi.dataset.time||'').trim();
-      if(timeA && timeB){
-        const score=t=>{const m=t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i); if(!m) return 9999; let h=+m[1],min=+m[2],ap=(m[3]||'PM').toUpperCase(); if(ap==='AM'&&h===12)h=0; if(ap==='PM'&&h!==12)h+=12; return h*60+min;};
-        existing.dataset.time = score(timeA) <= score(timeB) ? timeA : timeB;
-        existing.querySelector('.time').textContent = formatDisplayTime(existing.dataset.time);
-      } else if(timeB && !timeA){
-        existing.dataset.time = timeB; existing.querySelector('.time').textContent = formatDisplayTime(timeB);
-      }
-      updateCounts(existing); sourceLi.remove(); updateTotal(); renderTotalsBar(); return true;
-    }
-    function addDancer(){
-      const val=nameInput.value.trim();
-      if(!val){ toast('Enter a name first','err'); return; }
-      if(!lists.stage1){ toast('Stage 1 not found','err'); return; }
-      const tempLi = makeDancer(val);
-      if(!tempLi) return;
-      const merged = tryMergeByName(val, tempLi);
-      if(!merged){ lists.stage1.appendChild(tempLi); }
-      nameInput.value=''; updateTotal(); renderTotalsBar();
-    }
-
-    function computeTotals(){const t={dances:0,vip15:0,vip30:0,vip60:0,specials:0};Array.from(document.querySelectorAll('li[data-id]')).forEach(li=>{t.dances+=(+li.dataset.dances||0);t.vip15+=(+li.dataset.vip15||0);t.vip30+=(+li.dataset.vip30||0);t.vip60+=(+li.dataset.vip60||0);t.specials+=(+li.dataset.specials||0);});return t;}
-    function renderTotalsBar(){const t=computeTotals();const el=document.getElementById('totalsBar');if(!el)return;el.innerHTML=[`<span class="total-chip">Dances: ${t.dances}</span>`,`<span class="total-chip">VIP 15: ${t.vip15}</span>`,`<span class="total-chip">VIP 30: ${t.vip30}</span>`,`<span class="total-chip">VIP 60: ${t.vip60}</span>`,`<span class="total-chip">Specials: ${t.specials}</span>`].join(' ');}
-
-    function rotateWithin(ul){const mv=Array.from(ul.children).find(x=>!x.dataset.divider);if(!mv) return; mv.dataset.startTime=Date.now(); ul.appendChild(mv);}
-    function nextFrom(srcId){const ids=Object.keys(lists);if(!ids.length||!lists[srcId])return;if(ids.length===1){rotateWithin(lists[srcId]);updateTotal();renderTotalsBar();return;}const srcUL=lists[srcId];const mv=Array.from(srcUL.children).find(x=>!x.dataset.divider);if(!mv)return;const srcIndex=ids.indexOf(srcId);const dstId=ids[(srcIndex+1)%ids.length];lists[dstId].appendChild(mv);mv.dataset.startTime=Date.now();updateTotal();renderTotalsBar();}
-    function nextStage(){const ids=Object.keys(lists);if(!ids.length)return;if(ids.length===1){rotateWithin(lists[ids[0]]);updateTotal();renderTotalsBar();return;}for(const id of ids){const ul=lists[id];const first=Array.from(ul.children).find(x=>!x.dataset.divider);if(first){nextFrom(id);return;}}}
-    nextStageBtn.addEventListener('click',nextStage);
-
-    function updateTotal(){try{const all=Object.values(lists).flatMap(ul=>Array.from(ul.children)).filter(x=>!x.dataset.divider);totalEl.textContent=all.length;}catch(e){}}
-    function updateCountsOff(){offCountEl.textContent=offRotation?offRotation.children.length:0;}
-
-    /* CSV with CRLF + BOM */
-    function formatDateMDY(iso){ if(!iso) return ''; const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return iso; return m[2]+'/'+m[3]+'/'+m[1]; }
-    function csvEscape(s){ s=(s==null?'':String(s)); return (s.includes('"')||s.includes(',')||s.includes('\n')||s.includes('\r')) ? '"'+s.replace(/"/g,'""')+'"' : s; }
-    function csvHeader(){ return ["Shift Date","Dancer Name","Check-In","Check-Out","Dances","VIP (15m)","VIP (30m)","VIP (60m)","Specials","Notes"].join(','); }
-    function rowForLi(li){
-      const o=log[li.dataset.id]||{}; const date=formatDateMDY(DATE_KEY);
-      const vals=[ date, li.dataset.name||'', formatDisplayTime(li.dataset.time||''), formatDisplayTime(o.checkout||''), +li.dataset.dances||0, +li.dataset.vip15||0, +li.dataset.vip30||0, +li.dataset.vip60||0, +li.dataset.specials||0, li.dataset.note||'' ];
-      return vals.map(csvEscape).join(',');
-    }
-    function rowForArchived(id,o){
-      const date=formatDateMDY(DATE_KEY);
-      const vals=[ date, o.name||'', formatDisplayTime(o.time||''), formatDisplayTime(o.checkout||''), +o.DANCES||0, +o.VIP15||0, +o.VIP30||0, +o.VIP60||0, +o.SPECIALS||0, o.note||'' ];
-      return vals.map(csvEscape).join(',');
-    }
-    function csvRows(full){
-      try{
-        const rows=[ csvHeader() ];
-        Object.values(lists).forEach(list => Array.from(list.children).forEach(li => { if(li.dataset.divider) return; rows.push(rowForLi(li)); }));
-        if(full){ for(const id in log){ if(document.querySelector('[data-id="'+id+'"]')) continue; const o=log[id]; if(!o) continue; rows.push(rowForArchived(id,o)); } }
-        return rows.join('\r\n');
-      }catch(e){ toast('CSV build failed','err',4000); return ''; }
-    }
-    function download(txt,prefix){
-      try{
-        const BOM = '\ufeff'; // UTF-8 BOM for Excel/Numbers
-        const a=document.createElement('a');
-        a.href=URL.createObjectURL(new Blob([BOM+txt],{type:'text/csv;charset=utf-8'}));
-        a.download=prefix+'_'+DATE_KEY+'.csv'; a.click();
-      }catch(e){ toast('Download failed','err'); }
-    }
-    function saveReport(){ const csv=csvRows(true); if(csv){ download(csv,'stageflow'); localStorage.setItem(LOG_KEY+'_archived','1'); } }
-
-    function startNewNight(){ if(!confirm('Clear board/start new night?')) return;
-      try{ Object.values(lists).forEach(ul=>ul.innerHTML=''); if(offRotation) offRotation.innerHTML=''; log={}; saveLog(); updateTotal(); renderTotalsBar(); updateCountsOff(); }
-      catch(e){ toast('Reset failed','err'); }
-    }
-
-    (function(){ const now=new Date(); const run=new Date(); run.setHours(5,10,0,0); if(now>run) run.setDate(run.getDate()+1); setTimeout(()=>{ if(localStorage.getItem(LOG_KEY+'_archived')) return; saveReport(); }, run-now); })();
-
-    setInterval(()=>{ try{ document.querySelectorAll('li[data-start-time]').forEach(li=>{ const start=Number(li.dataset.startTime); const elapsed=(Date.now()-start)/1000; const mins=Math.floor(elapsed/60).toString().padStart(2,'0'); const secs=Math.floor(elapsed%60).toString().padStart(2,'0'); const t=li.querySelector('.timer'); if(t){ t.textContent=mins+':'+secs; const hue=240-Math.min(elapsed,9000)*(240/9000); t.style.color='hsl('+hue+', 100%, 50%)'; } }); } catch(e){} }, 1000);
-
-    function loadDB(){ try{return JSON.parse(localStorage.getItem(DB_KEY)||'[]')}catch(e){return[]} }
-    function saveDB(arr){ localStorage.setItem(DB_KEY, JSON.stringify(arr)); }
-    function upsertDancer(entry){
-      const db = loadDB();
-      const idxSameName = db.findIndex(x => (x.name||'').trim().toLowerCase() === (entry.name||'').trim().toLowerCase());
-      const idxById = db.findIndex(x => x.id === entry.id);
-      if(idxById>=0){
-        db[idxById] = entry;
-      }else if(idxSameName>=0){
-        if(confirm('A roster entry named "'+entry.name+'" already exists. Overwrite it?')){
-          entry.id = db[idxSameName].id; db[idxSameName] = entry;
-        }else{
-          entry.id = 'db_'+Math.random().toString(36).slice(2,10); db.push(entry);
-        }
-      }else{
-        db.push(entry);
-      }
-      saveDB(db); return entry;
-    }
-    function removeDancer(id){ saveDB(loadDB().filter(x=>x.id!==id)); }
-    function ensureId(){ return 'db_'+Math.random().toString(36).slice(2,10); }
-
-    const rosterModal=document.getElementById('rosterModal');
-    const rosterHeader=document.getElementById('rosterHeader');
-    const rosterResizer=document.getElementById('rosterResizer');
-    const rosterLeft=document.getElementById('rosterLeft');
-    const rosterSplit=document.getElementById('rosterSplit');
-    const rosterList=document.getElementById('rosterList');
-    const rosterSearch=document.getElementById('rosterSearch');
-    const rosterQuickAdd=document.getElementById('rosterQuickAdd');
-    const rosterNew=document.getElementById('rosterNew');
-    const rosterClose=document.getElementById('rosterClose');
-
-    const dancerForm=document.getElementById('dancerForm');
-    const dancerId=document.getElementById('dancerId');
-    const dancerName=document.getElementById('dancerName');
-    const dancerHired=document.getElementById('dancerHired');
-    const dancerDesc=document.getElementById('dancerDesc');
-    const dancerOwes=document.getElementById('dancerOwes');
-    const dancerMusic=document.getElementById('dancerMusic');
-    const saveDancerBtn=document.getElementById('saveDancerBtn');
-    const deleteDancerBtn=document.getElementById('deleteDancerBtn');
-    const addToStageBtn=document.getElementById('addToStageBtn');
-
-    function showRoster(){ restoreRosterBox(); renderRoster(); dancerFormReset(); rosterModal.style.display='flex'; rosterSearch.focus(); }
-    function hideRoster(){ rosterModal.style.display='none'; saveRosterBox(); }
-    function dancerFormReset(){ dancerId.value=''; dancerName.value=''; dancerHired.value=''; dancerDesc.value=''; dancerOwes.checked=false; dancerMusic.value=''; }
-    function fillForm(e){ dancerId.value=e.id; dancerName.value=e.name||''; dancerHired.value=e.hired||''; dancerDesc.value=e.desc||''; dancerOwes.checked=!!e.owes; dancerMusic.value=e.music||''; }
-
-    function renderRoster(){
-      const q=(rosterSearch.value||'').trim().toLowerCase();
-      const db=loadDB();
-      db.sort((a,b)=>(b.owes|0)-(a.owes|0)||(b.last_seen||'').localeCompare(a.last_seen||'')||(a.name||'').localeCompare(b.name||''));
-      const filtered=q?db.filter(x=>(x.name||'').toLowerCase().includes(q)):db;
-      rosterList.innerHTML='';
-      filtered.forEach(e=>{
-        const row=document.createElement('div'); row.className='roster-item';
-        const main=document.createElement('div'); main.className='roster-main';
-        const nameEl=document.createElement('div'); nameEl.className='roster-name'; nameEl.textContent=e.name||'';
-        const meta=document.createElement('div'); meta.className='roster-meta';
-        const bits=[]; if(e.hired)bits.push('Hired '+e.hired); if(e.desc)bits.push(e.desc); if(e.music)bits.push('♪ '+(e.music.length>24?e.music.slice(0,24)+'…':e.music)); if(e.last_seen)bits.push('Seen '+e.last_seen);
-        meta.textContent=bits.join(' • ');
-        main.appendChild(nameEl); if(e.owes){const chip=document.createElement('span');chip.className='chip-owes';chip.textContent='OWES';main.appendChild(chip);} main.appendChild(meta);
-        const btns=document.createElement('div'); btns.className='btn-row';
-        const add=document.createElement('button'); add.className='btn btn-primary'; add.textContent='Add'; add.onclick=()=>{ addFromDB(e); };
-        const edit=document.createElement('button'); edit.className='btn btn-secondary'; edit.textContent='Edit'; edit.onclick=()=>{ fillForm(e); dancerName.focus(); };
-        const owes=document.createElement('button'); owes.className='btn btn-danger'; owes.textContent=e.owes?'Clear Owes':'Set Owes'; owes.onclick=()=>{ e.owes=!e.owes; upsertDancer(e); renderRoster(); };
-        btns.append(add,edit,owes);
-        row.append(main,btns);
-        rosterList.appendChild(row);
-      });
-    }
-    function addFromDB(e){
-      const ul=lists.stage1; if(!ul){ toast('Stage 1 not found','err'); return; }
-      const dummy = makeDancer(e.name);
-      const merged = tryMergeByName(e.name, dummy);
-      if(!merged){ ul.appendChild(dummy); }
-      e.last_seen=new Date().toISOString().slice(0,10); upsertDancer(e); renderRoster();
-      updateTotal(); renderTotalsBar();
-    }
-
-    function saveForm(){
-      const id=dancerId.value||ensureId();
-      const e={ id, name:dancerName.value.trim(), hired:dancerHired.value||'', desc:dancerDesc.value.trim(), owes:dancerOwes.checked, music:dancerMusic.value.trim(), last_seen:null };
-      if(!e.name){ toast('Name is required','err'); return; }
-      upsertDancer(e); fillForm(e); renderRoster();
-    }
-    function deleteCurrent(){ const id=dancerId.value; if(!id)return; if(!confirm('Delete this dancer from roster?'))return; removeDancer(id); dancerFormReset(); renderRoster(); }
-
-    rosterBtn.addEventListener('click', showRoster);
-    rosterClose.addEventListener('click', hideRoster);
-    rosterNew.addEventListener('click', ()=>{dancerFormReset(); dancerName.focus();});
-    saveDancerBtn.addEventListener('click', saveForm);
-    deleteDancerBtn.addEventListener('click', deleteCurrent);
-    addToStageBtn.addEventListener('click', ()=>{
-      const e={ id:dancerId.value||ensureId(), name:dancerName.value.trim(), hired:dancerHired.value||'', desc:dancerDesc.value.trim(), owes:dancerOwes.checked, music:dancerMusic.value.trim() };
-      if(!e.name){ toast('Name required','err'); return; }
-      upsertDancer(e); addFromDB(e);
+      },0);
     });
-    rosterSearch.addEventListener('input', renderRoster);
+  })();
 
-    (function(){
-      const el=rosterModal, hdr=rosterHeader;
-      let dx=0,dy=0,startX=0,startY=0;
-      hdr.addEventListener('mousedown', (e)=>{
-        if (e.target.closest('button')) return;
-        startX=e.clientX; startY=e.clientY;
-        const rect=el.getBoundingClientRect(); dx=startX-rect.left; dy=startY-rect.top;
-        function mm(ev){ const x=ev.clientX-dx, y=ev.clientY-dy; el.style.left=Math.max(8,Math.min(window.innerWidth-80,Math.round(x)))+'px'; el.style.top=Math.max(8,Math.min(window.innerHeight-60,Math.round(y)))+'px'; }
-        function mu(){ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); saveRosterBox(); }
-        document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
-      });
-    })();
-
-    (function(){
-      const el=rosterModal, h=rosterResizer;
-      let sx=0,sy=0,sw=0,sh=0;
-      h.addEventListener('mousedown',e=>{
-        e.preventDefault(); const r=el.getBoundingClientRect(); sx=e.clientX; sy=e.clientY; sw=r.width; sh=r.height;
-        function mm(ev){ const w=Math.max(720,Math.min(window.innerWidth-16, Math.round(sw + (ev.clientX-sx)))); const hh=Math.max(400,Math.min(window.innerHeight-16, Math.round(sh + (ev.clientY-sy)))); el.style.width=w+'px'; el.style.height=hh+'px'; }
-        function mu(){ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); saveRosterBox(); }
-        document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
-      });
-    })();
-
-    (function(){
-      const split=rosterSplit, left=rosterLeft;
-      let sx=0,startLeft=0;
-      split.addEventListener('mousedown', e=>{
-        e.preventDefault(); sx=e.clientX; startLeft=left.getBoundingClientRect().width;
-        function mm(ev){ const dx=ev.clientX-sx; const w=Math.max(360,Math.min(900,Math.round(startLeft+dx))); left.style.flex='0 0 '+w+'px'; }
-        function mu(){ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); saveRosterBox(); }
-        document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
-      });
-    })();
-
-    function saveRosterBox(){
-      const el=rosterModal.getBoundingClientRect();
-      const leftW=rosterLeft.getBoundingClientRect().width;
-      const v={ x:parseInt(el.left,10), y:parseInt(el.top,10), w:parseInt(el.width,10), h:parseInt(el.height,10), lw:parseInt(leftW,10) };
-      localStorage.setItem(ROSTER_POS_KEY, JSON.stringify(v));
-    }
-    function restoreRosterBox(){
-      try{
-        const v=JSON.parse(localStorage.getItem(ROSTER_POS_KEY)||'{}');
-        if (v.w) rosterModal.style.width=v.w+'px';
-        if (v.h) rosterModal.style.height=v.h+'px';
-        if (v.x!=null) rosterModal.style.left=Math.max(8,Math.min(window.innerWidth-80,v.x))+'px';
-        if (v.y!=null) rosterModal.style.top=Math.max(8,Math.min(window.innerHeight-60,v.y))+'px';
-        if (v.lw) rosterLeft.style.flex='0 0 '+Math.max(360,Math.min(900,v.lw))+'px';
-      }catch(e){} 
-    }
-
+  const toastWrap=document.getElementById('toastWrap');
+  function toast(msg,type='ok',ms=2200){
     try{
-      nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') addDancer(); });
-      addBtn.onclick=addDancer; saveBtn.onclick=saveReport; newNightBtn.onclick=startNewNight;
-      loadTheme(); loadFontScale(); loadBoxWidth(); loadFitToggle(); loadAdvToggle(); loadLowerSplit();
-      const initialCount=loadStageCount(); rebuildStages(initialCount);
-      for(const id in log){ const o=log[id]; const li=makeDancer(o.name,o.time,o.note,o.C,o.S,o.D,id); if(li) lists.stage1.appendChild(li); }
-      updateTotal(); renderTotalsBar(); new MutationObserver(updateCountsOff).observe(offRotation,{childList:true});
-      stageCountSelect.addEventListener('change',()=>{ const n=parseInt(stageCountSelect.value,10); rebuildStages(n); saveStageCount(n); });
-      themeBtn.addEventListener('click',()=>{ const cur=localStorage.getItem(THEME_KEY)||'dark'; const idx=THEMES.indexOf(cur); const next=THEMES[(idx+1)%THEMES.length]; applyTheme(next); });
-      rosterBtn.addEventListener('click', ()=> { showRoster(); });
+      const t=document.createElement('div'); t.className='toast '+(type==='err'?'err':'ok'); t.textContent=msg;
+      toastWrap.appendChild(t); setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .35s';}, ms);
+      setTimeout(()=>{t.remove();}, ms+380);
     }catch(e){}
-  </script>
+  }
+
+  const board=document.getElementById('board');
+  const offPanel=document.getElementById('offPanel');
+  const splitter=document.getElementById('splitter');
+  const totalEl=document.getElementById('totalCount');
+  const offCountEl=document.getElementById('offCount');
+  const nameInput=document.getElementById('nameInput');
+  const addBtn=document.getElementById('addBtn');
+  const saveBtn=document.getElementById('saveBtn');
+  const themeBtn=document.getElementById('themeBtn');
+  const rosterBtn=document.getElementById('rosterBtn');
+  const newNightBtn=document.getElementById('newNightBtn');
+  const stageCountSelect=document.getElementById('stageCount');
+  const nextStageBtn=document.getElementById('nextStageBtn');
+  const fontScale=document.getElementById('fontScale');
+  const fontScaleVal=document.getElementById('fontScaleVal');
+  const boxWidth=document.getElementById('boxWidth');
+  const boxWidthVal=document.getElementById('boxWidthVal');
+  const fitToggle=document.getElementById('fitToggle');
+  const advToggle=document.getElementById('advToggle');
+
+  const DATE_KEY=new Date().toISOString().slice(0,10);
+  const LOG_KEY='shiftLog_'+DATE_KEY;
+  const STAGE_COUNT_KEY='stageCount_'+DATE_KEY;
+  const FONT_SCALE_KEY='fontScale_'+DATE_KEY;
+  const BOX_WIDTH_KEY='boxWidth_'+DATE_KEY;
+  const FIT_TOGGLE_KEY='fitToggle_'+DATE_KEY;
+  const ADV_TOGGLE_KEY='advToggle_'+DATE_KEY;
+  const THEME_KEY='theme_'+DATE_KEY;
+  const DB_KEY='dancers_db_v1';
+  const COL_WIDTHS_KEY='colWidths_'+DATE_KEY;
+  const LOWER_SPLIT_KEY='lowerSplit_'+DATE_KEY;
+  const ROSTER_POS_KEY='roster_pos_v1';
+
+  let log={};
+  try{ log=JSON.parse(localStorage.getItem(LOG_KEY)||'{}'); }
+  catch(e){ log={}; localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+
+  function saveLog(){ try{ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }catch(e){ toast('Save failed','err'); } }
+  function uid(){ return 'id'+Math.random().toString(36).slice(2,9); }
+  function countsHTML(o){const d=o.dances|0,sp=o.specials|0,v15=o.vip15|0,v30=o.vip30|0,v60=o.vip60|0,v=v15+v30+v60;const chip=(l,v)=>'<span class="badge'+(v?'':' zero')+'">'+l+v+'</span>';return chip('D',d)+chip(' VIP',v)+chip(' Sp',sp);}
+  function getCurrentDate(){return new Date().toISOString().slice(0,10);}
+  function formatDisplayTime(t){if(!t)return'';const m=t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);if(!m)return t;let[,h,min,p]=m;h=parseInt(h);return(p&&p.toUpperCase()==='AM')?(h+':'+min+' AM'):(h+':'+min);}
+  function getCurrentTime12Hour(){const n=new Date();let minutes=n.getMinutes();const r=Math.round(minutes/5)*5;let h=n.getHours();if(r===60){h+=1;minutes=0}else{minutes=r}const per=h>=12?'PM':'AM';h=h%12||12;return h+':'+String(minutes).padStart(2,'0')+' '+per;}
+
+  const THEMES=['dark','bright','contrast','neon','blue'];
+  function applyTheme(name){const t=THEMES.includes(name)?name:'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem(THEME_KEY,t);}
+  function loadTheme(){applyTheme(localStorage.getItem(THEME_KEY)||'dark');}
+
+  let lists={}; const offRotation=document.getElementById('offRotation');
+  function buildColumn(title,id){
+    const col=document.createElement('div'); col.className='column';
+    const h2=document.createElement('h2');
+    const left=document.createElement('span'); left.textContent=title;
+    const right=document.createElement('span');
+    const btn=document.createElement('button'); btn.className='btn-next-small'; btn.textContent='Next'; btn.addEventListener('click',()=>nextFrom(id));
+    right.appendChild(btn); h2.append(left,right);
+    const ul=document.createElement('ul'); ul.id=id;
+    const resizer=document.createElement('div'); resizer.className='col-resizer'; resizer.addEventListener('mousedown',e=>startResize(e,col,id));
+    col.append(h2,ul,resizer);
+    return {col,ul};
+  }
+  function setAutoScaleVars(c){const a=Math.max(0.6,1-Math.max(c-2,0)*0.08);document.documentElement.style.setProperty('--auto-scale',String(a));document.documentElement.style.setProperty('--stage-count',String(c));}
+  function getGlobalBoxWidth(){const s=parseInt(localStorage.getItem(BOX_WIDTH_KEY)||'260',10);return Math.min(420,Math.max(160,s));}
+  function setGlobalBoxWidth(px){localStorage.setItem(BOX_WIDTH_KEY,String(px));}
+  function loadColWidths(){try{return JSON.parse(localStorage.getItem(COL_WIDTHS_KEY)||'{}')}catch(e){return{}}}
+  function saveColWidths(m){localStorage.setItem(COL_WIDTHS_KEY,JSON.stringify(m));}
+  function clearColWidths(){saveColWidths({});}
+  function applyColumnWidths(){
+    const fit=fitToggle.checked; const ids=Object.keys(lists); const gaps=Math.max(ids.length-1,0)*8;
+    if(fit&&ids.length){const avail=board.clientWidth-gaps;const w=Math.max(160,Math.floor(avail/ids.length));ids.forEach(id=>{lists[id].parentElement.style.flexBasis=w+'px';});}
+    else{const map=loadColWidths();const g=getGlobalBoxWidth();ids.forEach(id=>{const px=map[id]||g;lists[id].parentElement.style.flexBasis=px+'px';});}
+  }
+  function rebuildStages(c){
+    const prev=Array.from(document.querySelectorAll('#board li[data-id]'));
+    lists={}; board.innerHTML='';
+    for(let i=1;i<=c;i++){const id='stage'+i;const {col,ul}=buildColumn('Stage '+i,id);lists[id]=ul;board.appendChild(col);}
+    (function waitForSortable(attempt=0){
+      if(typeof Sortable!=='undefined'){ Object.values(lists).forEach(ul=>new Sortable(ul,{group:'shared',animation:150})); new Sortable(offRotation,{group:'shared',animation:150}); }
+      else if(attempt<20){ setTimeout(()=>waitForSortable(attempt+1),100); }
+    })();
+    if(prev.length) prev.forEach(li=>lists.stage1.appendChild(li));
+    setAutoScaleVars(c); applyColumnWidths(); updateCountsOff(); updateTotal(); renderTotalsBar();
+  }
+  function loadStageCount(){const s=localStorage.getItem(STAGE_COUNT_KEY);const n=s?Math.max(1,Math.min(6,parseInt(s,10))):1;stageCountSelect.value=String(n);return n;}
+  function saveStageCount(n){localStorage.setItem(STAGE_COUNT_KEY,String(n));}
+
+  function loadFontScale(){const s=localStorage.getItem(FONT_SCALE_KEY);const pct=s?Math.max(60,Math.min(160,parseInt(s,10))):100;fontScale.value=String(pct);fontScaleVal.textContent=pct+'%';document.documentElement.style.setProperty('--user-font-scale',String(pct/100));}
+  function saveFontScale(p){localStorage.setItem(FONT_SCALE_KEY,String(p));}
+  fontScale.addEventListener('input',()=>{const p=parseInt(fontScale.value,10);fontScaleVal.textContent=p+'%';document.documentElement.style.setProperty('--user-font-scale',String(p/100));saveFontScale(p);});
+  function loadBoxWidth(){const px=getGlobalBoxWidth();boxWidth.value=String(px);boxWidthVal.textContent=px+'px';document.documentElement.style.setProperty('--column-width',px+'px');}
+  boxWidth.addEventListener('input',()=>{const px=parseInt(boxWidth.value,10);boxWidthVal.textContent=px+'px';document.documentElement.style.setProperty('--column-width',px+'px');setGlobalBoxWidth(px);if(!fitToggle.checked){clearColWidths();}applyColumnWidths();});
+  function loadFitToggle(){const s=localStorage.getItem(FIT_TOGGLE_KEY);fitToggle.checked=s==='1';}
+  function saveFitToggle(){localStorage.setItem(FIT_TOGGLE_KEY,fitToggle.checked?'1':'0');}
+  fitToggle.addEventListener('change',()=>{saveFitToggle();applyColumnWidths();});
+  window.addEventListener('resize',()=>{if(fitToggle.checked)applyColumnWidths();});
+  function loadAdvToggle(){const s=localStorage.getItem(ADV_TOGGLE_KEY);advToggle.checked=s==='1';syncManualClass();}
+  function saveAdvToggle(){localStorage.setItem(ADV_TOGGLE_KEY,advToggle.checked?'1':'0');}
+  function syncManualClass(){if(advToggle.checked)board.classList.add('manual');else board.classList.remove('manual');}
+  advToggle.addEventListener('change',()=>{saveAdvToggle();syncManualClass();});
+
+  const MIN_W=160,MAX_W=520; let activeResize=null;
+  function startResize(e,col,id){if(!advToggle.checked)return;e.preventDefault();const startX=e.clientX;const startW=col.getBoundingClientRect().width;activeResize={startX,startW,col,id};document.addEventListener('mousemove',onResizeMove);document.addEventListener('mouseup',onResizeEnd);}
+  function onResizeMove(e){if(!activeResize)return;const dx=e.clientX-activeResize.startX;let w=Math.max(MIN_W,Math.min(MAX_W,Math.round(activeResize.startW+dx)));activeResize.col.style.flexBasis=w+'px';}
+  function onResizeEnd(){if(!activeResize)return;const map=loadColWidths();map[activeResize.id]=parseInt(activeResize.col.style.flexBasis,10)||activeResize.col.getBoundingClientRect().width;saveColWidths(map);activeResize=null;document.removeEventListener('mousemove',onResizeMove);document.removeEventListener('mouseup',onResizeEnd);}
+
+  function loadLowerSplit(){const saved=parseInt(localStorage.getItem(LOWER_SPLIT_KEY)||'0',10);const defaultW=Math.max(220,Math.min(480,280));const w=saved>0?saved:defaultW;offPanel.style.flexBasis=w+'px';document.documentElement.style.setProperty('--lower-off-w',w+'px');}
+  function saveLowerSplit(px){localStorage.setItem(LOWER_SPLIT_KEY,String(px));}
+  let splitActive=null;
+  splitter.addEventListener('mousedown',(e)=>{e.preventDefault();splitActive={startX:e.clientX,startW:offPanel.getBoundingClientRect().width};document.addEventListener('mousemove',onSplitMove);document.addEventListener('mouseup',onSplitEnd);});
+  function onSplitMove(e){if(!splitActive)return;const dx=e.clientX-splitActive.startX;let w=Math.max(180,Math.min(600,Math.round(splitActive.startW+dx)));offPanel.style.flexBasis=w+'px';document.documentElement.style.setProperty('--lower-off-w',w+'px');}
+  function onSplitEnd(){if(!splitActive)return;const w=parseInt(offPanel.style.flexBasis,10)||offPanel.getBoundingClientRect().width;saveLowerSplit(w);splitActive=null;document.removeEventListener('mousemove',onSplitMove);document.removeEventListener('mouseup',onSplitEnd);}
+
+  function updateCounts(li){
+    try{
+      const d={dances:+li.dataset.dances||0,vip15:+li.dataset.vip15||0,vip30:+li.dataset.vip30||0,vip60:+li.dataset.vip60||0,specials:+li.dataset.specials||0};
+      const c=li.querySelector('.counts');
+      if(c){ c.innerHTML = countsHTML(d); }
+      const hasVip=d.vip15+d.vip30+d.vip60>0;
+      if(hasVip) li.classList.add('vip-done'); else li.classList.remove('vip-done');
+    }catch(e){}
+  }
+  function adjust(li,key,delta){
+    try{
+      const cur=+li.dataset[key]||0;
+      const nxt=Math.max(0,cur+delta);
+      li.dataset[key]=nxt;
+      updateCounts(li);
+      renderTotalsBar();
+      const id=li.dataset.id;
+      if(id){
+        if(!log[id]) log[id]={};
+        const map={dances:'DANCES',vip15:'VIP15',vip30:'VIP30',vip60:'VIP60',specials:'SPECIALS'};
+        const K=map[key]||key.toUpperCase();
+        log[id][K]=nxt; saveLog();
+      }
+    }catch(e){}
+  }
+
+  function createVIPPicker(anchorEl, li){
+    let picker=li.querySelector('.vip-picker');
+    if(!picker){
+      picker=document.createElement('div'); picker.className='vip-picker';
+      picker.innerHTML='<button data-k="vip15">15</button><button data-k="vip30">30</button><button data-k="vip60">60</button>';
+      document.body.appendChild(picker);
+      picker.addEventListener('click',(ev)=>{
+        const key=ev.target.getAttribute('data-k'); if(!key) return;
+        adjust(li,key,1); hideVIPPicker();
+      });
+    }
+    function position(){
+      const r = anchorEl.getBoundingClientRect();
+      picker.style.left = Math.max(8, Math.min(window.innerWidth-160, Math.round(r.left)))+'px';
+      picker.style.top  = Math.round(r.bottom + 6)+'px';
+      picker.style.display='flex';
+    }
+    function hideVIPPicker(){ if(picker) picker.style.display='none'; document.removeEventListener('click', onDoc); }
+    function onDoc(e){ if(!picker.contains(e.target) && !anchorEl.contains(e.target)) hideVIPPicker(); }
+    position();
+    setTimeout(()=>document.addEventListener('click', onDoc), 0);
+  }
+
+  function makeDancer(name,time='',note='',C=0,S=0,D=0,id=null){
+    try{
+      id=id||uid();
+      if(!log[id]) log[id]={};
+      log[id] = Object.assign({ name, time, C, S, D, note, starColor:null, checkout:'' }, log[id]);
+      saveLog();
+      const li=document.createElement('li');
+      Object.assign(li.dataset,{ id, name, time, note, dances:(D|0), vip15:0, vip30:(C|0), vip60:0, specials:(S|0) });
+
+      const header=document.createElement('div'); header.className='li-header';
+      const nameSpan=document.createElement('span'); nameSpan.className='name'; nameSpan.textContent=name;
+      const timeSpan=document.createElement('span'); timeSpan.className='time'; timeSpan.textContent=formatDisplayTime(time);
+      const timerSpan=document.createElement('span'); timerSpan.className='timer'; timerSpan.textContent='';
+      const counts=document.createElement('span'); counts.className='counts';
+
+      header.append(nameSpan, timeSpan, timerSpan, counts);
+
+      const details=document.createElement('div'); details.className='details';
+      const noteArea=document.createElement('textarea'); noteArea.className='note-input'; noteArea.rows=2; noteArea.placeholder='Notes / song requests'; noteArea.value=note;
+      noteArea.oninput=()=>{ li.dataset.note=noteArea.value; log[id].note=noteArea.value; saveLog(); };
+
+      const btnRow=document.createElement('div');
+      const btnDance=document.createElement('button'); btnDance.className='btn-small'; btnDance.textContent='+Dance';
+      btnDance.onclick=(e)=>{ e.stopPropagation(); adjust(li,'dances', e.shiftKey ? -1 : 1); };
+
+      const btnVIP=document.createElement('button'); btnVIP.className='btn-small'; btnVIP.textContent='+VIP';
+      btnVIP.onclick=(e)=>{ e.stopPropagation(); createVIPPicker(btnVIP, li); };
+
+      const btnSpec=document.createElement('button'); btnSpec.className='btn-small'; btnSpec.textContent='+Special';
+      btnSpec.onclick=(e)=>{ e.stopPropagation(); adjust(li,'specials', e.shiftKey ? -1 : 1); };
+
+      btnRow.append(btnDance, btnVIP, btnSpec);
+      details.append(noteArea, btnRow);
+
+      header.addEventListener('contextmenu', (ev)=>{
+        ev.preventDefault();
+        const newName = prompt('Edit dancer name', nameSpan.textContent);
+        if(newName && newName.trim()){
+          const merged = tryMergeByName(newName.trim(), li);
+          if(!merged){
+            nameSpan.textContent=newName.trim(); li.dataset.name=newName.trim(); log[id].name=newName.trim(); saveLog();
+          }
+        }
+        const newTime = prompt('Set or edit check-in time (e.g., 1:00 or 1:00 AM)', timeSpan.textContent);
+        if(newTime!==null){ timeSpan.textContent=formatDisplayTime(newTime); li.dataset.time=newTime; log[id].time=newTime; saveLog(); }
+      });
+
+      header.addEventListener('click', (ev)=>{
+        if(ev.shiftKey){
+          if(confirm('Delete this dancer?')){ log[id].checkout=getCurrentTime12Hour(); saveLog(); li.remove(); updateTotal(); renderTotalsBar(); }
+        } else {
+          details.style.display = details.style.display==='block' ? 'none' : 'block';
+        }
+      });
+
+      li.append(header, details);
+      updateCounts(li);
+      return li;
+    } catch(e){ toast('Add failed','err'); return null; }
+  }
+
+  function findActiveByName(name){
+    const norm=(name||'').trim().toLowerCase();
+    const all=[...document.querySelectorAll('ul#offRotation li[data-id]'), ...Object.values(lists).flatMap(ul=>Array.from(ul.children))].filter(li=>li.dataset&&li.dataset.id);
+    return all.find(li => (li.dataset.name||'').trim().toLowerCase() === norm) || null;
+  }
+  function tryMergeByName(targetName, sourceLi){
+    const existing = findActiveByName(targetName);
+    if(!existing || existing===sourceLi) return false;
+    const ok = confirm('A dancer named "'+targetName+'" already exists. Merge this entry into the existing one?');
+    if(!ok) return false;
+    const keys=['dances','vip15','vip30','vip60','specials'];
+    keys.forEach(k=>{const a=+existing.dataset[k]||0;const b=+sourceLi.dataset[k]||0;existing.dataset[k]=a+b;});
+    const noteA=existing.dataset.note||''; const noteB=sourceLi.dataset.note||'';
+    const mergedNote=noteA&&noteB?(noteA+' | '+noteB):(noteA||noteB); if(mergedNote){existing.dataset.note=mergedNote;}
+    const timeA=(existing.dataset.time||'').trim(); const timeB=(sourceLi.dataset.time||'').trim();
+    if(timeA && timeB){
+      const score=t=>{const m=t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i); if(!m) return 9999; let h=+m[1],min=+m[2],ap=(m[3]||'PM').toUpperCase(); if(ap==='AM'&&h===12)h=0; if(ap==='PM'&&h!==12)h+=12; return h*60+min;};
+      existing.dataset.time = score(timeA) <= score(timeB) ? timeA : timeB;
+      existing.querySelector('.time').textContent = formatDisplayTime(existing.dataset.time);
+    } else if(timeB && !timeA){
+      existing.dataset.time = timeB; existing.querySelector('.time').textContent = formatDisplayTime(timeB);
+    }
+    updateCounts(existing); sourceLi.remove(); updateTotal(); renderTotalsBar(); return true;
+  }
+  function addDancer(){
+    const val=nameInput.value.trim();
+    if(!val){ toast('Enter a name first','err'); return; }
+    if(!lists.stage1){ toast('Stage 1 not found','err'); return; }
+    const tempLi = makeDancer(val);
+    if(!tempLi) return;
+    const merged = tryMergeByName(val, tempLi);
+    if(!merged){ lists.stage1.appendChild(tempLi); }
+    nameInput.value=''; updateTotal(); renderTotalsBar();
+  }
+
+  function computeTotals(){const t={dances:0,vip15:0,vip30:0,vip60:0,specials:0};Array.from(document.querySelectorAll('li[data-id]')).forEach(li=>{t.dances+=(+li.dataset.dances||0);t.vip15+=(+li.dataset.vip15||0);t.vip30+=(+li.dataset.vip30||0);t.vip60+=(+li.dataset.vip60||0);t.specials+=(+li.dataset.specials||0);});return t;}
+  function renderTotalsBar(){const t=computeTotals();const el=document.getElementById('totalsBar');if(!el)return;el.innerHTML=[`<span class="total-chip">Dances: ${t.dances}</span>`,`<span class="total-chip">VIP 15: ${t.vip15}</span>`,`<span class="total-chip">VIP 30: ${t.vip30}</span>`,`<span class="total-chip">VIP 60: ${t.vip60}</span>`,`<span class="total-chip">Specials: ${t.specials}</span>`].join(' ');}
+
+  function rotateWithin(ul){const mv=Array.from(ul.children).find(x=>!x.dataset.divider);if(!mv) return; mv.dataset.startTime=Date.now(); ul.appendChild(mv);}
+  function nextFrom(srcId){const ids=Object.keys(lists);if(!ids.length||!lists[srcId])return;if(ids.length===1){rotateWithin(lists[srcId]);updateTotal();renderTotalsBar();return;}const srcUL=lists[srcId];const mv=Array.from(srcUL.children).find(x=>!x.dataset.divider);if(!mv)return;const srcIndex=ids.indexOf(srcId);const dstId=ids[(srcIndex+1)%ids.length];lists[dstId].appendChild(mv);mv.dataset.startTime=Date.now();updateTotal();renderTotalsBar();}
+  function nextStage(){const ids=Object.keys(lists);if(!ids.length)return;if(ids.length===1){rotateWithin(lists[ids[0]]);updateTotal();renderTotalsBar();return;}for(const id of ids){const ul=lists[id];const first=Array.from(ul.children).find(x=>!x.dataset.divider);if(first){nextFrom(id);return;}}}
+  nextStageBtn.addEventListener('click',nextStage);
+
+  function updateTotal(){try{const all=Object.values(lists).flatMap(ul=>Array.from(ul.children)).filter(x=>!x.dataset.divider);totalEl.textContent=all.length;}catch(e){}}
+  function updateCountsOff(){offCountEl.textContent=offRotation?offRotation.children.length:0;}
+
+  /* CSV with CRLF + BOM */
+  function formatDateMDY(iso){ if(!iso) return ''; const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return iso; return m[2]+'/'+m[3]+'/'+m[1]; }
+  function csvEscape(s){ s=(s==null?'':String(s)); return (s.includes('"')||s.includes(',')||s.includes('\n')||s.includes('\r')) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+  function csvHeader(){ return ["Shift Date","Dancer Name","Check-In","Check-Out","Dances","VIP (15m)","VIP (30m)","VIP (60m)","Specials","Notes"].join(','); }
+  function rowForLi(li){
+    const o=log[li.dataset.id]||{}; const date=formatDateMDY(DATE_KEY);
+    const vals=[ date, li.dataset.name||'', formatDisplayTime(li.dataset.time||''), formatDisplayTime(o.checkout||''), +li.dataset.dances||0, +li.dataset.vip15||0, +li.dataset.vip30||0, +li.dataset.vip60||0, +li.dataset.specials||0, li.dataset.note||'' ];
+    return vals.map(csvEscape).join(',');
+  }
+  function rowForArchived(id,o){
+    const date=formatDateMDY(DATE_KEY);
+    const vals=[ date, o.name||'', formatDisplayTime(o.time||''), formatDisplayTime(o.checkout||''), +o.DANCES||0, +o.VIP15||0, +o.VIP30||0, +o.VIP60||0, +o.SPECIALS||0, o.note||'' ];
+    return vals.map(csvEscape).join(',');
+  }
+  function csvRows(full){
+    try{
+      const rows=[ csvHeader() ];
+      Object.values(lists).forEach(list => Array.from(list.children).forEach(li => { if(li.dataset.divider) return; rows.push(rowForLi(li)); }));
+      if(full){ for(const id in log){ if(document.querySelector('[data-id="'+id+'"]')) continue; const o=log[id]; if(!o) continue; rows.push(rowForArchived(id,o)); } }
+      return rows.join('\r\n');
+    }catch(e){ toast('CSV build failed','err',4000); return ''; }
+  }
+  function download(txt,prefix){
+    try{
+      const BOM = '\ufeff'; // UTF-8 BOM for Excel/Numbers
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob([BOM+txt],{type:'text/csv;charset=utf-8'}));
+      a.download=prefix+'_'+DATE_KEY+'.csv'; a.click();
+    }catch(e){ toast('Download failed','err'); }
+  }
+  function saveReport(){ const csv=csvRows(true); if(csv){ download(csv,'stageflow'); localStorage.setItem(LOG_KEY+'_archived','1'); } }
+
+  function startNewNight(){ if(!confirm('Clear board/start new night?')) return;
+    try{ Object.values(lists).forEach(ul=>ul.innerHTML=''); if(offRotation) offRotation.innerHTML=''; log={}; saveLog(); updateTotal(); renderTotalsBar(); updateCountsOff(); }
+    catch(e){ toast('Reset failed','err'); }
+  }
+
+  (function(){ const now=new Date(); const run=new Date(); run.setHours(5,10,0,0); if(now>run) run.setDate(run.getDate()+1); setTimeout(()=>{ if(localStorage.getItem(LOG_KEY+'_archived')) return; saveReport(); }, run-now); })();
+
+  setInterval(()=>{ try{ document.querySelectorAll('li[data-start-time]').forEach(li=>{ const start=Number(li.dataset.startTime); const elapsed=(Date.now()-start)/1000; const mins=Math.floor(elapsed/60).toString().padStart(2,'0'); const secs=Math.floor(elapsed%60).toString().padStart(2,'0'); const t=li.querySelector('.timer'); if(t){ t.textContent=mins+':'+secs; const hue=240-Math.min(elapsed,9000)*(240/9000); t.style.color='hsl('+hue+', 100%, 50%)'; } }); } catch(e){} }, 1000);
+
+  function loadDB(){ try{return JSON.parse(localStorage.getItem(DB_KEY)||'[]')}catch(e){return[]} }
+  function saveDB(arr){ localStorage.setItem(DB_KEY, JSON.stringify(arr)); }
+  function upsertDancer(entry){
+    const db = loadDB();
+    const idxSameName = db.findIndex(x => (x.name||'').trim().toLowerCase() === (entry.name||'').trim().toLowerCase());
+    const idxById = db.findIndex(x => x.id === entry.id);
+    if(idxById>=0){
+      db[idxById] = entry;
+    }else if(idxSameName>=0){
+      if(confirm('A roster entry named "'+entry.name+'" already exists. Overwrite it?')){
+        entry.id = db[idxSameName].id; db[idxSameName] = entry;
+      }else{
+        entry.id = 'db_'+Math.random().toString(36).slice(2,10); db.push(entry);
+      }
+    }else{
+      db.push(entry);
+    }
+    saveDB(db); return entry;
+  }
+  function removeDancer(id){ saveDB(loadDB().filter(x=>x.id!==id)); }
+  function ensureId(){ return 'db_'+Math.random().toString(36).slice(2,10); }
+
+  const rosterModal=document.getElementById('rosterModal');
+  const rosterHeader=document.getElementById('rosterHeader');
+  const rosterResizer=document.getElementById('rosterResizer');
+  const rosterLeft=document.getElementById('rosterLeft');
+  const rosterSplit=document.getElementById('rosterSplit');
+  const rosterList=document.getElementById('rosterList');
+  const rosterSearch=document.getElementById('rosterSearch');
+  const rosterQuickAdd=document.getElementById('rosterQuickAdd');
+  const rosterNew=document.getElementById('rosterNew');
+  const rosterClose=document.getElementById('rosterClose');
+
+  const dancerForm=document.getElementById('dancerForm');
+  const dancerId=document.getElementById('dancerId');
+  const dancerName=document.getElementById('dancerName');
+  const dancerHired=document.getElementById('dancerHired');
+  const dancerDesc=document.getElementById('dancerDesc');
+  const dancerOwes=document.getElementById('dancerOwes');
+  const dancerMusic=document.getElementById('dancerMusic');
+  const saveDancerBtn=document.getElementById('saveDancerBtn');
+  const deleteDancerBtn=document.getElementById('deleteDancerBtn');
+  const addToStageBtn=document.getElementById('addToStageBtn');
+
+  function showRoster(){ restoreRosterBox(); renderRoster(); dancerFormReset(); rosterModal.style.display='flex'; rosterSearch.focus(); }
+  function hideRoster(){ rosterModal.style.display='none'; saveRosterBox(); }
+  function dancerFormReset(){ dancerId.value=''; dancerName.value=''; dancerHired.value=''; dancerDesc.value=''; dancerOwes.checked=false; dancerMusic.value=''; }
+  function fillForm(e){ dancerId.value=e.id; dancerName.value=e.name||''; dancerHired.value=e.hired||''; dancerDesc.value=e.desc||''; dancerOwes.checked=!!e.owes; dancerMusic.value=e.music||''; }
+
+  function renderRoster(){
+    const q=(rosterSearch.value||'').trim().toLowerCase();
+    const db=loadDB();
+    db.sort((a,b)=>(b.owes|0)-(a.owes|0)||(b.last_seen||'').localeCompare(a.last_seen||'')||(a.name||'').localeCompare(b.name||''));
+    const filtered=q?db.filter(x=>(x.name||'').toLowerCase().includes(q)):db;
+    rosterList.innerHTML='';
+    filtered.forEach(e=>{
+      const row=document.createElement('div'); row.className='roster-item';
+      const main=document.createElement('div'); main.className='roster-main';
+      const nameEl=document.createElement('div'); nameEl.className='roster-name'; nameEl.textContent=e.name||'';
+      const meta=document.createElement('div'); meta.className='roster-meta';
+      const bits=[]; if(e.hired)bits.push('Hired '+e.hired); if(e.desc)bits.push(e.desc); if(e.music)bits.push('♪ '+(e.music.length>24?e.music.slice(0,24)+'…':e.music)); if(e.last_seen)bits.push('Seen '+e.last_seen);
+      meta.textContent=bits.join(' • ');
+      main.appendChild(nameEl); if(e.owes){const chip=document.createElement('span');chip.className='chip-owes';chip.textContent='OWES';main.appendChild(chip);} main.appendChild(meta);
+      const btns=document.createElement('div'); btns.className='btn-row';
+      const add=document.createElement('button'); add.className='btn btn-primary'; add.textContent='Add'; add.onclick=()=>{ addFromDB(e); };
+      const edit=document.createElement('button'); edit.className='btn btn-secondary'; edit.textContent='Edit'; edit.onclick=()=>{ fillForm(e); dancerName.focus(); };
+      const owes=document.createElement('button'); owes.className='btn btn-danger'; owes.textContent=e.owes?'Clear Owes':'Set Owes'; owes.onclick=()=>{ e.owes=!e.owes; upsertDancer(e); renderRoster(); };
+      btns.append(add,edit,owes);
+      row.append(main,btns);
+      rosterList.appendChild(row);
+    });
+  }
+  function addFromDB(e){
+    const ul=lists.stage1; if(!ul){ toast('Stage 1 not found','err'); return; }
+    const dummy = makeDancer(e.name);
+    const merged = tryMergeByName(e.name, dummy);
+    if(!merged){ ul.appendChild(dummy); }
+    e.last_seen=new Date().toISOString().slice(0,10); upsertDancer(e); renderRoster();
+    updateTotal(); renderTotalsBar();
+  }
+
+  function saveForm(){
+    const id=dancerId.value||ensureId();
+    const e={ id, name:dancerName.value.trim(), hired:dancerHired.value||'', desc:dancerDesc.value.trim(), owes:dancerOwes.checked, music:dancerMusic.value.trim(), last_seen:null };
+    if(!e.name){ toast('Name is required','err'); return; }
+    upsertDancer(e); fillForm(e); renderRoster();
+  }
+  function deleteCurrent(){ const id=dancerId.value; if(!id)return; if(!confirm('Delete this dancer from roster?'))return; removeDancer(id); dancerFormReset(); renderRoster(); }
+
+  rosterBtn.addEventListener('click', showRoster);
+  rosterClose.addEventListener('click', hideRoster);
+  rosterNew.addEventListener('click', ()=>{dancerFormReset(); dancerName.focus();});
+  saveDancerBtn.addEventListener('click', saveForm);
+  deleteDancerBtn.addEventListener('click', deleteCurrent);
+  addToStageBtn.addEventListener('click', ()=>{
+    const e={ id:dancerId.value||ensureId(), name:dancerName.value.trim(), hired:dancerHired.value||'', desc:dancerDesc.value.trim(), owes:dancerOwes.checked, music:dancerMusic.value.trim() };
+    if(!e.name){ toast('Name required','err'); return; }
+    upsertDancer(e); addFromDB(e);
+  });
+  rosterSearch.addEventListener('input', renderRoster);
+
+  (function(){
+    const el=rosterModal, hdr=rosterHeader;
+    let dx=0,dy=0,startX=0,startY=0;
+    hdr.addEventListener('mousedown', (e)=>{
+      if (e.target.closest('button')) return;
+      startX=e.clientX; startY=e.clientY;
+      const rect=el.getBoundingClientRect(); dx=startX-rect.left; dy=startY-rect.top;
+      function mm(ev){ const x=ev.clientX-dx, y=ev.clientY-dy; el.style.left=Math.max(8,Math.min(window.innerWidth-80,Math.round(x)))+'px'; el.style.top=Math.max(8,Math.min(window.innerHeight-60,Math.round(y)))+'px'; }
+      function mu(){ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); saveRosterBox(); }
+      document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+    });
+  })();
+
+  (function(){
+    const el=rosterModal, h=rosterResizer;
+    let sx=0,sy=0,sw=0,sh=0;
+    h.addEventListener('mousedown',e=>{
+      e.preventDefault(); const r=el.getBoundingClientRect(); sx=e.clientX; sy=e.clientY; sw=r.width; sh=r.height;
+      function mm(ev){ const w=Math.max(720,Math.min(window.innerWidth-16, Math.round(sw + (ev.clientX-sx)))); const hh=Math.max(400,Math.min(window.innerHeight-16, Math.round(sh + (ev.clientY-sy)))); el.style.width=w+'px'; el.style.height=hh+'px'; }
+      function mu(){ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); saveRosterBox(); }
+      document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+    });
+  })();
+
+  (function(){
+    const split=rosterSplit, left=rosterLeft;
+    let sx=0,startLeft=0;
+    split.addEventListener('mousedown', e=>{
+      e.preventDefault(); sx=e.clientX; startLeft=left.getBoundingClientRect().width;
+      function mm(ev){ const dx=ev.clientX-sx; const w=Math.max(360,Math.min(900,Math.round(startLeft+dx))); left.style.flex='0 0 '+w+'px'; }
+      function mu(){ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); saveRosterBox(); }
+      document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+    });
+  })();
+
+  function saveRosterBox(){
+    const el=rosterModal.getBoundingClientRect();
+    const leftW=rosterLeft.getBoundingClientRect().width;
+    const v={ x:parseInt(el.left,10), y:parseInt(el.top,10), w:parseInt(el.width,10), h:parseInt(el.height,10), lw:parseInt(leftW,10) };
+    localStorage.setItem(ROSTER_POS_KEY, JSON.stringify(v));
+  }
+  function restoreRosterBox(){
+    try{
+      const v=JSON.parse(localStorage.getItem(ROSTER_POS_KEY)||'{}');
+      if (v.w) rosterModal.style.width=v.w+'px';
+      if (v.h) rosterModal.style.height=v.h+'px';
+      if (v.x!=null) rosterModal.style.left=Math.max(8,Math.min(window.innerWidth-80,v.x))+'px';
+      if (v.y!=null) rosterModal.style.top=Math.max(8,Math.min(window.innerHeight-60,v.y))+'px';
+      if (v.lw) rosterLeft.style.flex='0 0 '+Math.max(360,Math.min(900,v.lw))+'px';
+    }catch(e){} 
+  }
+
+  try{
+    nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') addDancer(); });
+    addBtn.onclick=addDancer; saveBtn.onclick=saveReport; newNightBtn.onclick=startNewNight;
+    loadTheme(); loadFontScale(); loadBoxWidth(); loadFitToggle(); loadAdvToggle(); loadLowerSplit();
+    const initialCount=loadStageCount(); rebuildStages(initialCount);
+    for(const id in log){ const o=log[id]; const li=makeDancer(o.name,o.time,o.note,o.C,o.S,o.D,id); if(li) lists.stage1.appendChild(li); }
+    updateTotal(); renderTotalsBar(); new MutationObserver(updateCountsOff).observe(offRotation,{childList:true});
+    stageCountSelect.addEventListener('change',()=>{ const n=parseInt(stageCountSelect.value,10); rebuildStages(n); saveStageCount(n); });
+    themeBtn.addEventListener('click',()=>{ const cur=localStorage.getItem(THEME_KEY)||'dark'; const idx=THEMES.indexOf(cur); const next=THEMES[(idx+1)%THEMES.length]; applyTheme(next); });
+    rosterBtn.addEventListener('click', ()=> { showRoster(); });
+  }catch(e){}
+</script>
+
+<!-- Supabase login wiring -->
+<script type="module">
+  import { supabase } from './supabaseClient.js';
+
+  const authEl = document.getElementById('auth');
+  const appEl  = document.getElementById('app');
+  const emailEl = document.getElementById('email');
+  const passEl  = document.getElementById('password');
+
+  function showApp(isLoggedIn){
+    authEl.style.display = isLoggedIn ? 'none' : 'block';
+    appEl.style.display  = isLoggedIn ? 'block' : 'none';
+  }
+
+  document.getElementById('signin').onclick = async () => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: emailEl.value.trim(),
+      password: passEl.value
+    });
+    if (error) alert(error.message);
+  };
+
+  document.getElementById('signup').onclick = async () => {
+    const { error } = await supabase.auth.signUp({
+      email: emailEl.value.trim(),
+      password: passEl.value
+    });
+    if (error) alert(error.message);
+    else alert('Check your email to confirm your account.');
+  };
+
+  // On load, show either login or app
+  const { data: { session } } = await supabase.auth.getSession();
+  showApp(!!session);
+
+  // React to login/logout
+  supabase.auth.onAuthStateChange((_event, sessionNow) => {
+    showApp(!!sessionNow);
+  });
+</script>
+
 </body>
 </html>
