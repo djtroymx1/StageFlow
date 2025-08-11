@@ -92,6 +92,75 @@
     .roster-split{flex:0 0 6px;cursor:col-resize;background:#3a3a6a;border-radius:4px;}
   </style>
 </head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>StageFlow - v2.33n (CSV Fix + Name Cell Clean)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg:#d0d0d0; --text:#e0e0e0; --panel-bg:#1a1a1a; --border:#14ffec;
+      --off-border:#6c6cff; --notes-bg:#0f0f1f; --muted:#aaa; --cell-padding:4px;
+      --column-width:260px; --box-font-size:1.05em; --gaps:8px;
+      --auto-scale:1; --user-font-scale:1; --resizer-hit:10px; --max-width:900px;
+    }
+    /* Your CSS continues here... */
+  </style>
+</head>
+<body>
+  <div id="auth" style="display:none; text-align:center; margin-top:50px;">
+    <h2>Sign in</h2>
+    <input id="email" type="email" placeholder="Email"><br><br>
+    <input id="password" type="password" placeholder="Password"><br><br>
+    <button id="signin">Sign In</button>
+    <button id="signup">Create Account</button>
+  </div>
+
+  <div id="app" style="display:none;">
+    <!-- Your StageFlow UI starts here -->
+    <!-- All your existing app HTML remains here -->
+  </div>
+
+  <script type="module">
+    import { supabase } from './supabaseClient.js';
+
+    const authEl = document.getElementById("auth");
+    const appEl = document.getElementById("app");
+    const emailEl = document.getElementById("email");
+    const passEl = document.getElementById("password");
+
+    function showApp(isLoggedIn) {
+      authEl.style.display = isLoggedIn ? "none" : "block";
+      appEl.style.display = isLoggedIn ? "block" : "none";
+    }
+
+    document.getElementById("signin").onclick = async () => {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailEl.value,
+        password: passEl.value
+      });
+      if (error) alert(error.message);
+    };
+
+    document.getElementById("signup").onclick = async () => {
+      const { error } = await supabase.auth.signUp({
+        email: emailEl.value,
+        password: passEl.value
+      });
+      if (error) alert(error.message);
+      else alert("Check your email to confirm your account.");
+    };
+
+    const { data: { session } } = await supabase.auth.getSession();
+    showApp(!!session);
+
+    supabase.auth.onAuthStateChange((_event, sessionNow) => {
+      showApp(!!sessionNow);
+    });
+  </script>
+</body>
+</html>  
 <body>
 
 <!-- Login screen -->
